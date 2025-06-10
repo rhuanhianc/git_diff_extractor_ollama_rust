@@ -499,7 +499,7 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
         stream: false,
     };
 
-    println!("{}[{}]{} Enviando requisição para o Ollama...", COLOR_MAGENTA, LABEL_OLLAMA, COLOR_RESET);
+    println!("{}[{}]{} Enviando requisição...", COLOR_BLUE, LABEL_OLLAMA, COLOR_RESET);
     
     let res = client
         .post(OLLAMA_API_URL)
