@@ -7,7 +7,7 @@ use std::fmt::Write as FmtWrite;
 use std::process::Command;
 use std::time::Duration;
 
-const REPO_PATH: &str = "/opt/el/projetos/workspace/eps-jdk-acesso"; // caminho do repo
+const REPO_PATH: &str = ""; // caminho do repo
 const OLLAMA_MODEL: &str = "deepseek-r1:8b"; // modelo pra usar
 const OLLAMA_API_URL: &str = "http://localhost:11434/api/generate";
 const MAX_DIFF_SIZE: usize = 8000; // maximo do diff
