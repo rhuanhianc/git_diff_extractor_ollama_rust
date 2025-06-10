@@ -7,11 +7,39 @@ use std::fmt::Write as FmtWrite;
 use std::process::Command;
 use std::time::Duration;
 
-const REPO_PATH: &str = ""; // caminho do repo
+const REPO_PATH: &str = "/opt/el/projetos/workspace/eps-jdk-acesso"; // caminho do repo
 const OLLAMA_MODEL: &str = "deepseek-r1:8b"; // modelo pra usar
 const OLLAMA_API_URL: &str = "http://localhost:11434/api/generate";
 const MAX_DIFF_SIZE: usize = 8000; // maximo do diff
 const CHUNK_SIZE: usize = 6000; // tamanho dos pedacos
+
+// Códigos de cores ANSI
+const COLOR_RESET: &str = "\x1b[0m";
+const COLOR_CYAN: &str = "\x1b[1;36m";
+const COLOR_BLUE: &str = "\x1b[1;34m";
+const COLOR_YELLOW: &str = "\x1b[1;33m";
+const COLOR_GREEN: &str = "\x1b[1;32m";
+const COLOR_RED: &str = "\x1b[1;31m";
+const COLOR_WHITE: &str = "\x1b[1;37m";
+const COLOR_MAGENTA: &str = "\x1b[1;35m";
+const COLOR_GRAY: &str = "\x1b[1;90m";
+
+// Etiquetas de log
+const LABEL_INFO: &str = "INFO";
+const LABEL_REPO: &str = "REPO";
+const LABEL_MODELO: &str = "MODELO";
+const LABEL_PROCESSANDO: &str = "PROCESSANDO";
+const LABEL_SUCESSO: &str = "SUCESSO";
+const LABEL_IGNORADO: &str = "IGNORADO";
+const LABEL_ERRO: &str = "ERRO";
+const LABEL_RESUMO: &str = "RESUMO";
+const LABEL_CONCLUIDO: &str = "CONCLUÍDO";
+const LABEL_CHUNK: &str = "CHUNK";
+const LABEL_PROC: &str = "PROC";
+const LABEL_OLLAMA: &str = "OLLAMA";
+
+// Separador
+const SEPARATOR: &str = "────────────────────────────────────────────────────────────";
 
 #[derive(Serialize)]
 struct OllamaRequest<'a> {
@@ -76,30 +104,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut errors = 0;
 
     for (index, hash) in hashes.iter().enumerate() {
-        println!("\n[1;32m[PROCESSANDO][0m Commit {}/{}", index + 1, hashes.len());
+        println!("\n{}[{}]{} Commit {}/{}", COLOR_GREEN, LABEL_PROCESSANDO, COLOR_RESET, index + 1, hashes.len());
         
         match process_commit(&http_client, hash) {
             Ok(ProcessResult::Success(filename)) => {
-                println!("[1;32m[SUCESSO][0m Análise salva em '{}'", filename);
+                println!("{}[{}]{} Análise salva em '{}'", COLOR_GREEN, LABEL_SUCESSO, COLOR_RESET, filename);
                 processed += 1;
             }
             Ok(ProcessResult::Skipped(reason)) => {
-                println!("[1;33m[IGNORADO][0m {}", reason);
+                println!("{}[{}]{} {}", COLOR_YELLOW, LABEL_IGNORADO, COLOR_RESET, reason);
                 skipped += 1;
             }
             Err(e) => {
-                println!("[1;31m[ERRO][0m Commit {}: {}", &hash[..12], e);
+                println!("{}[{}]{} Commit {}: {}", COLOR_RED, LABEL_ERRO, COLOR_RESET, &hash[..12], e);
                 errors += 1;
             }
         }
     }
 
-    println!("\n{}", "-".repeat(60));
-    println!("[1;36m[RESUMO][0m");
-    println!("  [1;32mProcessados:[0m {}", processed);
-    println!("  [1;33mIgnorados:[0m {}", skipped);
-    println!("  [1;31mErros:[0m {}", errors);
-    println!("[1;36m[CONCLUÍDO][0m Análise finalizada!");
+    println!("\n{}", SEPARATOR);
+    println!("{}[{}]{}", COLOR_CYAN, LABEL_RESUMO, COLOR_RESET);
+    println!("  {}Processados:{} {}", COLOR_GREEN, COLOR_RESET, processed);
+    println!("  {}Ignorados:{} {}", COLOR_YELLOW, COLOR_RESET, skipped);
+    println!("  {}Erros:{} {}", COLOR_RED, COLOR_RESET, errors);
+    println!("{}[{}]{} Análise finalizada!", COLOR_CYAN, LABEL_CONCLUIDO, COLOR_RESET);
     
     Ok(())
 }
