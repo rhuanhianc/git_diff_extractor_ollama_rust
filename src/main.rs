@@ -78,10 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "10".to_string())
         .parse()?;
 
-    println!("[1;36m[INFO][0m Analisando os últimos {} commits...", num_commits);
-    println!("[1;34m[REPO][0m {}", REPO_PATH);
-    println!("[1;33m[MODELO][0m {}", OLLAMA_MODEL);
-    println!("{}", "-".repeat(60));
+    println!("{}[{}]{} Analisando os últimos {} commits...", COLOR_CYAN, LABEL_INFO, COLOR_RESET, num_commits);
+    println!("{}[{}]{} {}", COLOR_BLUE, LABEL_REPO, COLOR_RESET, REPO_PATH);
+    println!("{}[{}]{} {}", COLOR_YELLOW, LABEL_MODELO, COLOR_RESET, OLLAMA_MODEL);
+    println!("{}", SEPARATOR);
 
     let log_output = Command::new("git")
         .arg("log")
@@ -142,10 +142,10 @@ fn process_commit(client: &Client, hash: &str) -> Result<ProcessResult, Box<dyn 
     let commit_info = get_commit_info(hash, REPO_PATH)?;
     let raw_diff = get_commit_diff(hash, REPO_PATH)?;
     
-    println!("[1;37mMensagem:[0m {}", commit_info.message);
-    println!("[1;35mAutor:[0m {} [1;90mem[0m {}", commit_info.author, commit_info.date);
-    println!("[1;32mAlterações:[0m +{} [1;31m-{}[0m linhas em {} arquivo(s)", 
-             commit_info.insertions, commit_info.deletions, commit_info.files_changed.len());
+    println!("{}Mensagem:{} {}", COLOR_WHITE, COLOR_RESET, commit_info.message);
+    println!("{}Autor:{} {} {}em{} {}", COLOR_MAGENTA, COLOR_RESET, commit_info.author, COLOR_GRAY, COLOR_RESET, commit_info.date);
+    println!("{}Alterações:{} +{} {}-{}{} linhas em {} arquivo(s)", 
+             COLOR_GREEN, COLOR_RESET, commit_info.insertions, COLOR_RED, commit_info.deletions, COLOR_RESET, commit_info.files_changed.len());
     
     // checa se tem mudanca
     if !raw_diff.lines().any(|l| l.starts_with('+') || l.starts_with('-')) {
@@ -155,11 +155,11 @@ fn process_commit(client: &Client, hash: &str) -> Result<ProcessResult, Box<dyn 
     let formatted_diff = format_diff_as_markdown(&raw_diff);
     let diff_size = formatted_diff.chars().count();
     
-    println!("[1;90mTamanho do diff:[0m {} caracteres", diff_size);
+    println!("{}Tamanho do diff:{} {} caracteres", COLOR_GRAY, COLOR_RESET, diff_size);
 
     // processa o diff grande ou normal
     let analysis = if diff_size > MAX_DIFF_SIZE {
-        println!("[1;33m[CHUNK][0m Diff muito grande, dividindo em pedaços...");
+        println!("{}[{}]{} Diff muito grande, dividindo em pedaços...", COLOR_YELLOW, LABEL_CHUNK, COLOR_RESET);
         process_large_diff(client, &commit_info, &formatted_diff)?
     } else {
         let analysis_prompt = build_analysis_prompt(&commit_info.message, &formatted_diff);
@@ -180,10 +180,11 @@ fn process_large_diff(client: &Client, commit_info: &CommitInfo, diff: &str) -> 
     let chunks = split_diff_into_chunks(diff);
     let mut analyses = Vec::new();
     
-    println!("[1;33m[CHUNK][0m Dividido em {} pedaços", chunks.len());
+    println!("{}[{}]{} Dividindo diff em {} pedaços...", COLOR_YELLOW, LABEL_PROC, COLOR_RESET, chunks.len());
     
     for (i, chunk) in chunks.iter().enumerate() {
-        println!("[1;34m[PROC][0m Pedaço {}/{}", i + 1, chunks.len());
+        println!("{}[{}]{} Analisando pedaço {}/{} ({} bytes)", 
+                 COLOR_MAGENTA, LABEL_CHUNK, COLOR_RESET, i + 1, chunks.len(), chunk.size);
         
         let chunk_prompt = build_chunk_analysis_prompt(&commit_info.message, &chunk.content, i + 1, chunks.len());
         let chunk_analysis = call_ollama(client, chunk_prompt)?;
@@ -498,7 +499,7 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
         stream: false,
     };
 
-    println!("[1;34m[OLLAMA][0m Enviando requisição...");
+    println!("{}[{}]{} Enviando requisição para o Ollama...", COLOR_MAGENTA, LABEL_OLLAMA, COLOR_RESET);
     
     let res = client
         .post(OLLAMA_API_URL)
@@ -515,7 +516,7 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
         return Err("Resposta vazia do Ollama".into());
     }
 
-    println!("[1;32m[OLLAMA][0m Resposta recebida");
+    println!("{}[{}]{} Resposta recebida", COLOR_GREEN, LABEL_OLLAMA, COLOR_RESET);
     Ok(ollama_res.response)
 }
 
@@ -561,21 +562,6 @@ fn format_diff_as_markdown(diff_text: &str) -> String {
 
     close_diff_block(&mut formatted_output, &mut in_diff_block);
     formatted_output
-}
-
-fn get_commit_message(hash: &str, repo_path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let output = Command::new("git")
-        .arg("show")
-        .arg("-s")
-        .arg("--pretty=format:%s%n%n%b")
-        .arg(hash)
-        .current_dir(repo_path)
-        .output()?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8(output.stderr)?.into());
-    }
-    Ok(String::from_utf8(output.stdout)?)
 }
 
 fn get_commit_diff(hash: &str, repo_path: &str) -> Result<String, Box<dyn std::error::Error>> {
