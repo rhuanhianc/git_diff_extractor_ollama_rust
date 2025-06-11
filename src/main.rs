@@ -5,17 +5,18 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Write as FmtWrite;
 use std::process::Command;
-use std::thread;
 use std::time::Duration;
+use std::thread;
 
 const REPO_PATH: &str = ""; // caminho do repo
-const OLLAMA_MODEL: &str = "deepseek-r1:8b"; // modelo pra usar
+const OLLAMA_MODEL: &str = "gemma3:4b-it-q8_0"; // modelo pra usar
 const OLLAMA_API_URL: &str = "http://localhost:11434/api/generate";
-const MAX_DIFF_SIZE: usize = 8000; // maximo do diff
-const CHUNK_SIZE: usize = 6000; // tamanho dos pedacos
+const MAX_DIFF_SIZE: usize = 3000; // maximo do diff
+const CHUNK_SIZE: usize = 3000; // tamanho dos pedacos
 const MAX_RETRIES: u32 = 3; // tentativas para Ollama
 const RETRY_DELAY_MS: u64 = 1000; // delay entre tentativas
 const OLLAMA_TIMEOUT_SECS: u64 = 600; // timeout para Ollama em segundos
+const OLLAMA_MAX_CHUNKS: usize = 100; // maximo de pedacos para dividir o diff
 
 // Códigos de cores ANSI
 const COLOR_RESET: &str = "\x1b[0m";
@@ -82,18 +83,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "10".to_string())
         .parse()?;
 
-    println!(
-        "{}[{}]{} Analisando os últimos {} commits...",
-        COLOR_CYAN, LABEL_INFO, COLOR_RESET, num_commits
-    );
-    println!(
-        "{}[{}]{} {}",
-        COLOR_BLUE, LABEL_REPO, COLOR_RESET, REPO_PATH
-    );
-    println!(
-        "{}[{}]{} {}",
-        COLOR_YELLOW, LABEL_MODELO, COLOR_RESET, OLLAMA_MODEL
-    );
+    println!("{}[{}]{} Analisando os últimos {} commits...", COLOR_CYAN, LABEL_INFO, COLOR_RESET, num_commits);
+    println!("{}[{}]{} {}", COLOR_BLUE, LABEL_REPO, COLOR_RESET, REPO_PATH);
+    println!("{}[{}]{} {}", COLOR_YELLOW, LABEL_MODELO, COLOR_RESET, OLLAMA_MODEL);
     println!("{}", SEPARATOR);
 
     let log_output = Command::new("git")
@@ -102,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg("--pretty=format:%H")
         .current_dir(REPO_PATH)
         .output()?;
-
+    
     let hashes: Vec<String> = String::from_utf8(log_output.stdout)?
         .lines()
         .map(String::from)
@@ -117,39 +109,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut errors = 0;
 
     for (index, hash) in hashes.iter().enumerate() {
-        println!(
-            "\n{}[{}]{} Commit {}/{}",
-            COLOR_GREEN,
-            LABEL_PROCESSANDO,
-            COLOR_RESET,
-            index + 1,
-            hashes.len()
-        );
-
+        println!("\n{}[{}]{} Commit {}/{}", COLOR_GREEN, LABEL_PROCESSANDO, COLOR_RESET, index + 1, hashes.len());
+        
         match process_commit(&http_client, hash) {
             Ok(ProcessResult::Success(filename)) => {
-                println!(
-                    "{}[{}]{} Análise salva em '{}'",
-                    COLOR_GREEN, LABEL_SUCESSO, COLOR_RESET, filename
-                );
+                println!("{}[{}]{} Análise salva em '{}'", COLOR_GREEN, LABEL_SUCESSO, COLOR_RESET, filename);
                 processed += 1;
             }
             Ok(ProcessResult::Skipped(reason)) => {
-                println!(
-                    "{}[{}]{} {}",
-                    COLOR_YELLOW, LABEL_IGNORADO, COLOR_RESET, reason
-                );
+                println!("{}[{}]{} {}", COLOR_YELLOW, LABEL_IGNORADO, COLOR_RESET, reason);
                 skipped += 1;
             }
             Err(e) => {
-                println!(
-                    "{}[{}]{} Commit {}: {}",
-                    COLOR_RED,
-                    LABEL_ERRO,
-                    COLOR_RESET,
-                    &hash[..12],
-                    e
-                );
+                println!("{}[{}]{} Commit {}: {}", COLOR_RED, LABEL_ERRO, COLOR_RESET, &hash[..12], e);
                 errors += 1;
             }
         }
@@ -160,11 +132,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  {}Processados:{} {}", COLOR_GREEN, COLOR_RESET, processed);
     println!("  {}Ignorados:{} {}", COLOR_YELLOW, COLOR_RESET, skipped);
     println!("  {}Erros:{} {}", COLOR_RED, COLOR_RESET, errors);
-    println!(
-        "{}[{}]{} Análise finalizada!",
-        COLOR_CYAN, LABEL_CONCLUIDO, COLOR_RESET
-    );
-
+    println!("{}[{}]{} Análise finalizada!", COLOR_CYAN, LABEL_CONCLUIDO, COLOR_RESET);
+    
     Ok(())
 }
 
@@ -174,56 +143,28 @@ enum ProcessResult {
     Skipped(String),
 }
 
-fn process_commit(
-    client: &Client,
-    hash: &str,
-) -> Result<ProcessResult, Box<dyn std::error::Error>> {
+fn process_commit(client: &Client, hash: &str) -> Result<ProcessResult, Box<dyn std::error::Error>> {
     let commit_info = get_commit_info(hash, REPO_PATH)?;
     let raw_diff = get_commit_diff(hash, REPO_PATH)?;
-
-    println!(
-        "{}Mensagem:{} {}",
-        COLOR_WHITE, COLOR_RESET, commit_info.message
-    );
-    println!(
-        "{}Autor:{} {} {}em{} {}",
-        COLOR_MAGENTA, COLOR_RESET, commit_info.author, COLOR_GRAY, COLOR_RESET, commit_info.date
-    );
-    println!(
-        "{}Alterações:{} +{} {}-{}{} linhas em {} arquivo(s)",
-        COLOR_GREEN,
-        COLOR_RESET,
-        commit_info.insertions,
-        COLOR_RED,
-        commit_info.deletions,
-        COLOR_RESET,
-        commit_info.files_changed.len()
-    );
-
+    
+    println!("{}Mensagem:{} {}", COLOR_WHITE, COLOR_RESET, commit_info.message);
+    println!("{}Autor:{} {} {}em{} {}", COLOR_MAGENTA, COLOR_RESET, commit_info.author, COLOR_GRAY, COLOR_RESET, commit_info.date);
+    println!("{}Alterações:{} +{} {}-{}{} linhas em {} arquivo(s)", 
+             COLOR_GREEN, COLOR_RESET, commit_info.insertions, COLOR_RED, commit_info.deletions, COLOR_RESET, commit_info.files_changed.len());
+    
     // checa se tem mudanca
-    if !raw_diff
-        .lines()
-        .any(|l| l.starts_with('+') || l.starts_with('-'))
-    {
-        return Ok(ProcessResult::Skipped(
-            "sem alterações de código detectadas".to_string(),
-        ));
+    if !raw_diff.lines().any(|l| l.starts_with('+') || l.starts_with('-')) {
+        return Ok(ProcessResult::Skipped("sem alterações de código detectadas".to_string()));
     }
 
     let formatted_diff = format_diff_as_markdown(&raw_diff);
     let diff_size = formatted_diff.chars().count();
-
-    println!(
-        "{}Tamanho do diff:{} {} caracteres",
-        COLOR_GRAY, COLOR_RESET, diff_size
-    );
+    
+    println!("{}Tamanho do diff:{} {} caracteres", COLOR_GRAY, COLOR_RESET, diff_size);
 
     // processa o diff grande ou normal
     let analysis = if diff_size > MAX_DIFF_SIZE {
-        println!(
-            "{}[{}]{} Diff muito grande, dividindo em pedaços...",
-            COLOR_YELLOW, LABEL_CHUNK, COLOR_RESET
-        );
+        println!("{}[{}]{} Diff muito grande, dividindo em pedaços...", COLOR_YELLOW, LABEL_CHUNK, COLOR_RESET);
         process_large_diff(client, &commit_info, &formatted_diff)?
     } else {
         let analysis_prompt = build_analysis_prompt(&commit_info.message, &formatted_diff);
@@ -236,65 +177,48 @@ fn process_commit(
 
     let filename = generate_filename(&commit_info.message);
     std::fs::write(&filename, final_document)?;
-
+    
     Ok(ProcessResult::Success(filename))
 }
 
-fn process_large_diff(
-    client: &Client,
-    commit_info: &CommitInfo,
-    diff: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let chunks = split_diff_into_chunks(diff);
+fn process_large_diff(client: &Client, commit_info: &CommitInfo, diff: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut chunks = split_diff_into_chunks(diff);
     let mut analyses = Vec::new();
+    if chunks.is_empty() {
+        return Err("Nenhum pedaço de diff encontrado".into());
+    }
+    if chunks.len() > OLLAMA_MAX_CHUNKS {
+        println!("{}[{}]{} Aviso: {} pedaços excedem o máximo de {}. Processando apenas os primeiros {} pedaços.", 
+                 COLOR_YELLOW, LABEL_CHUNK, COLOR_RESET, chunks.len(), OLLAMA_MAX_CHUNKS, OLLAMA_MAX_CHUNKS);
+        chunks.truncate(OLLAMA_MAX_CHUNKS);
+    }  
 
-    println!(
-        "{}[{}]{} Dividido em {} pedaços",
-        COLOR_YELLOW,
-        LABEL_CHUNK,
-        COLOR_RESET,
-        chunks.len()
-    );
-
+    println!("{}[{}]{} Dividido em {} pedaços", COLOR_YELLOW, LABEL_CHUNK, COLOR_RESET, chunks.len());
+    
     for (i, chunk) in chunks.iter().enumerate() {
-        println!(
-            "{}[{}]{} Pedaço {}/{}",
-            COLOR_MAGENTA,
-            LABEL_PROC,
-            COLOR_RESET,
-            i + 1,
-            chunks.len()
-        );
-
-        let chunk_prompt =
-            build_chunk_analysis_prompt(&commit_info.message, &chunk.content, i + 1, chunks.len());
-
+        println!("{}[{}]{} Pedaço {}/{}", COLOR_MAGENTA, LABEL_PROC, COLOR_RESET, i + 1, chunks.len());
+        
+        let chunk_prompt = build_chunk_analysis_prompt(&commit_info.message, &chunk.content, i + 1, chunks.len());
+        
         match call_ollama(client, chunk_prompt) {
             Ok(chunk_analysis) => {
                 analyses.push(clean_ollama_response(chunk_analysis));
             }
             Err(e) => {
-                println!(
-                    "{}[{}]{} Erro no pedaço {}/{}: {} - continuando...",
-                    COLOR_YELLOW,
-                    LABEL_ERRO,
-                    COLOR_RESET,
-                    i + 1,
-                    chunks.len(),
-                    e
-                );
+                println!("{}[{}]{} Erro no pedaço {}/{}: {} - continuando...", 
+                         COLOR_YELLOW, LABEL_ERRO, COLOR_RESET, i + 1, chunks.len(), e);
                 analyses.push(format!("**Erro no pedaço {}:** {}", i + 1, e));
             }
         }
     }
-
+    
     if analyses.is_empty() {
         return Err("Todos os pedaços falharam".into());
     }
-
+    
     let combined_prompt = build_summary_prompt(&commit_info.message, &analyses);
     let final_analysis = call_ollama(client, combined_prompt)?;
-
+    
     Ok(clean_ollama_response(final_analysis))
 }
 
@@ -303,12 +227,12 @@ fn split_diff_into_chunks(diff: &str) -> Vec<DiffChunk> {
     let mut current_chunk = String::new();
     let mut current_files = Vec::new();
     let mut current_size = 0;
-
+    
     let file_header_re = Regex::new(r"^### Arquivo: `([^`]+)`").unwrap();
-
+    
     for line in diff.lines() {
         let line_size = line.len() + 1;
-
+        
         // se ficou muito grande, cria novo chunk
         if current_size + line_size > CHUNK_SIZE && !current_chunk.is_empty() {
             chunks.push(DiffChunk {
@@ -316,12 +240,12 @@ fn split_diff_into_chunks(diff: &str) -> Vec<DiffChunk> {
                 files: current_files.clone(),
                 size: current_size,
             });
-
+            
             current_chunk.clear();
             current_files.clear();
             current_size = 0;
         }
-
+        
         // pega nome do arquivo
         if let Some(caps) = file_header_re.captures(line) {
             let file_path = caps.get(1).map_or("", |m| m.as_str());
@@ -329,12 +253,12 @@ fn split_diff_into_chunks(diff: &str) -> Vec<DiffChunk> {
                 current_files.push(file_path.to_string());
             }
         }
-
+        
         current_chunk.push_str(line);
         current_chunk.push('\n');
         current_size += line_size;
     }
-
+    
     // adiciona ultimo chunk
     if !current_chunk.is_empty() {
         chunks.push(DiffChunk {
@@ -343,7 +267,7 @@ fn split_diff_into_chunks(diff: &str) -> Vec<DiffChunk> {
             size: current_size,
         });
     }
-
+    
     chunks
 }
 
@@ -360,14 +284,14 @@ fn get_commit_info(hash: &str, repo_path: &str) -> Result<CommitInfo, Box<dyn st
     if !output.status.success() {
         return Err(String::from_utf8(output.stderr)?.into());
     }
-
+    
     let output_str = String::from_utf8(output.stdout)?;
     let lines: Vec<&str> = output_str.lines().collect();
-
+    
     let message = lines.get(0).unwrap_or(&"").to_string();
     let author = lines.get(1).unwrap_or(&"").to_string();
     let date = lines.get(2).unwrap_or(&"").to_string();
-
+    
     let stats_output = Command::new("git")
         .arg("show")
         .arg("--stat")
@@ -375,10 +299,10 @@ fn get_commit_info(hash: &str, repo_path: &str) -> Result<CommitInfo, Box<dyn st
         .arg(hash)
         .current_dir(repo_path)
         .output()?;
-
+    
     let stats_str = String::from_utf8(stats_output.stdout)?;
     let (files_changed, insertions, deletions) = parse_git_stats(&stats_str);
-
+    
     Ok(CommitInfo {
         hash: hash.to_string(),
         short_hash: hash[..12].to_string(),
@@ -395,7 +319,7 @@ fn parse_git_stats(stats: &str) -> (Vec<String>, u32, u32) {
     let mut files = Vec::new();
     let mut insertions = 0;
     let mut deletions = 0;
-
+    
     for line in stats.lines() {
         if line.contains("|") {
             if let Some(file_part) = line.split('|').next() {
@@ -409,14 +333,14 @@ fn parse_git_stats(stats: &str) -> (Vec<String>, u32, u32) {
             if let Some(caps) = re.captures(line) {
                 insertions = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
             }
-
+            
             let re = Regex::new(r"(\d+) deletion").unwrap();
             if let Some(caps) = re.captures(line) {
                 deletions = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
             }
         }
     }
-
+    
     (files, insertions, deletions)
 }
 fn build_analysis_prompt(message: &str, diff: &str) -> String {
@@ -443,12 +367,7 @@ Seja conciso mas informativo. Use linguagem técnica apropriada.
     )
 }
 
-fn build_chunk_analysis_prompt(
-    message: &str,
-    chunk: &str,
-    chunk_num: usize,
-    total_chunks: usize,
-) -> String {
+fn build_chunk_analysis_prompt(message: &str, chunk: &str, chunk_num: usize, total_chunks: usize) -> String {
     format!(
         "Você é um engenheiro de software sênior analisando parte de um commit grande.
 
@@ -504,9 +423,14 @@ TAREFA: Com base nas análises dos chunks individuais, crie um resumo consolidad
 
 fn clean_ollama_response(response: String) -> String {
     let mut cleaned = response;
-
-    let think_patterns = ["</think>", "<think>", "</thinking>", "<thinking>"];
-
+    
+    let think_patterns = [
+        "</think>",
+        "<think>",
+        "</thinking>",
+        "<thinking>",
+    ];
+    
     for pattern in &think_patterns {
         if let Some(pos) = cleaned.find(pattern) {
             if pattern.starts_with("</") {
@@ -517,14 +441,14 @@ fn clean_ollama_response(response: String) -> String {
             }
         }
     }
-
+    
     cleaned.trim().to_string()
 }
 
 fn generate_final_document(commit_info: &CommitInfo, analysis: &str, diff: &str) -> String {
     let now = Local::now();
     let formatted_date = now.format("%Y-%m-%d %H:%M:%S").to_string();
-
+    
     format!(
         "# Análise do Commit: {}
 
@@ -570,7 +494,7 @@ fn generate_final_document(commit_info: &CommitInfo, analysis: &str, diff: &str)
 fn generate_filename(message: &str) -> String {
     let now = Local::now();
     let date_prefix = now.format("%Y%m%d_%H%M%S").to_string();
-
+    
     let safe_message = message
         .lines()
         .next()
@@ -585,7 +509,7 @@ fn generate_filename(message: &str) -> String {
         .collect::<String>()
         .trim_matches('_')
         .to_string();
-
+    
     if safe_message.is_empty() {
         format!("commit_{}_sem_titulo.md", date_prefix)
     } else {
@@ -601,20 +525,16 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
     };
 
     for attempt in 1..=MAX_RETRIES {
-        println!(
-            "{}[{}]{} Enviando requisição... (tentativa {}/{})",
-            COLOR_BLUE, LABEL_OLLAMA, COLOR_RESET, attempt, MAX_RETRIES
-        );
-
+        println!("{}[{}]{} Enviando requisição... (tentativa {}/{})", 
+                 COLOR_BLUE, LABEL_OLLAMA, COLOR_RESET, attempt, MAX_RETRIES);
+        
         match client.post(OLLAMA_API_URL).json(&ollama_req).send() {
             Ok(res) => {
                 if !res.status().is_success() {
                     let error_msg = format!("Erro na API do Ollama: {}", res.status());
                     if attempt < MAX_RETRIES {
-                        println!(
-                            "{}[{}]{} {} - tentando novamente em {}ms...",
-                            COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS
-                        );
+                        println!("{}[{}]{} {} - tentando novamente em {}ms...", 
+                                COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS);
                         thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
                         continue;
                     }
@@ -626,33 +546,22 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
                         if ollama_res.response.trim().is_empty() {
                             let error_msg = "Resposta vazia do Ollama";
                             if attempt < MAX_RETRIES {
-                                println!(
-                                    "{}[{}]{} {} - tentando novamente em {}ms...",
-                                    COLOR_YELLOW,
-                                    LABEL_OLLAMA,
-                                    COLOR_RESET,
-                                    error_msg,
-                                    RETRY_DELAY_MS
-                                );
+                                println!("{}[{}]{} {} - tentando novamente em {}ms...", 
+                                        COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS);
                                 thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
                                 continue;
                             }
                             return Err(error_msg.into());
                         }
 
-                        println!(
-                            "{}[{}]{} Resposta recebida",
-                            COLOR_GREEN, LABEL_OLLAMA, COLOR_RESET
-                        );
+                        println!("{}[{}]{} Resposta recebida", COLOR_GREEN, LABEL_OLLAMA, COLOR_RESET);
                         return Ok(ollama_res.response);
                     }
                     Err(e) => {
                         let error_msg = format!("Erro ao decodificar resposta JSON: {}", e);
                         if attempt < MAX_RETRIES {
-                            println!(
-                                "{}[{}]{} {} - tentando novamente em {}ms...",
-                                COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS
-                            );
+                            println!("{}[{}]{} {} - tentando novamente em {}ms...", 
+                                    COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS);
                             thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
                             continue;
                         }
@@ -663,10 +572,8 @@ fn call_ollama(client: &Client, prompt: String) -> Result<String, Box<dyn std::e
             Err(e) => {
                 let error_msg = format!("Erro de conexão: {}", e);
                 if attempt < MAX_RETRIES {
-                    println!(
-                        "{}[{}]{} {} - tentando novamente em {}ms...",
-                        COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS
-                    );
+                    println!("{}[{}]{} {} - tentando novamente em {}ms...", 
+                            COLOR_YELLOW, LABEL_OLLAMA, COLOR_RESET, error_msg, RETRY_DELAY_MS);
                     thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
                     continue;
                 }
@@ -696,17 +603,19 @@ fn format_diff_as_markdown(diff_text: &str) -> String {
     for line in diff_text.lines() {
         if let Some(caps) = file_header_re.captures(line) {
             close_diff_block(&mut formatted_output, &mut in_diff_block);
-
+            
             let file_path = caps.get(1).map_or("", |m| m.as_str());
             if file_path != current_file {
                 current_file = file_path.to_string();
                 writeln!(formatted_output, "### Arquivo: `{}`", file_path).unwrap();
             }
+            
         } else if let Some(caps) = hunk_header_re.captures(line) {
             let _header = caps.get(1).map_or("", |m| m.as_str());
             let _context = caps.get(2).map_or("", |m| m.as_str()).trim();
-
+            
             close_diff_block(&mut formatted_output, &mut in_diff_block);
+            
         } else if line.starts_with('+') || line.starts_with('-') || line.starts_with(' ') {
             if !in_diff_block {
                 formatted_output.push_str("\n```diff\n");
